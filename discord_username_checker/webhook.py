@@ -16,7 +16,10 @@ WEBHOOK_URL_RE = re.compile(
     r"^https://(?:(?:ptb|canary)\.)?discord(?:app)?\.com/api/(?:v\d+/)?webhooks/\d+/[\w-]+/?$"
 )
 MAX_CONTENT_LENGTH = 2000
-DEFAULT_BOT_NAME = "Discord Username Checker"
+# Discord refuse les noms de webhook contenant « discord » ou « clyde ».
+DEFAULT_BOT_NAME = "Vérificateur de pseudos"
+FORBIDDEN_NAME_WORDS = ("discord", "clyde")
+MAX_BOT_NAME_LENGTH = 80
 # Sans User-Agent explicite, urllib se présente comme « Python-urllib », que Cloudflare
 # refuse devant Discord (erreur 1010). Format recommandé par la documentation Discord.
 DEFAULT_WEBHOOK_USER_AGENT = f"DiscordBot (https://github.com/nicocebanita-cloud/Test, {__version__})"
@@ -24,6 +27,14 @@ DEFAULT_WEBHOOK_USER_AGENT = f"DiscordBot (https://github.com/nicocebanita-cloud
 
 def validate_webhook_url(url: str) -> bool:
     return bool(url) and WEBHOOK_URL_RE.match(url.strip()) is not None
+
+
+def sanitize_bot_name(name: str) -> str:
+    """Nom affiché acceptable par Discord : sans mot interdit, 80 caractères maximum."""
+    cleaned = (name or "").strip()[:MAX_BOT_NAME_LENGTH]
+    if not cleaned or any(word in cleaned.lower() for word in FORBIDDEN_NAME_WORDS):
+        return DEFAULT_BOT_NAME
+    return cleaned
 
 
 def mask_webhook_url(url: str) -> str:
@@ -77,7 +88,13 @@ class DiscordWebhook:
                 "URL de webhook invalide : attendu https://discord.com/api/webhooks/<id>/<token>"
             )
         self.url = url.strip()
-        self.bot_name = bot_name
+        self.bot_name = sanitize_bot_name(bot_name)
+        if self.bot_name != (bot_name or "").strip():
+            (logger or logging.getLogger(__name__)).warning(
+                "Nom de webhook « %s » refusé par Discord (mot interdit ou trop long) : « %s » sera utilisé",
+                bot_name,
+                self.bot_name,
+            )
         self.timeout = timeout
         self.max_retries = max(0, max_retries)
         self.headers = {"User-Agent": user_agent}

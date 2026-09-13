@@ -142,7 +142,7 @@ ignorés ; `--no-resume` force une nouvelle vérification complète.
 | Option | Défaut | Rôle |
 | --- | --- | --- |
 | `--webhook` | `$DISCORD_WEBHOOK_URL` | URL du webhook |
-| `--webhook-name` | Discord Username Checker | nom affiché |
+| `--webhook-name` | Vérificateur de pseudos | nom affiché (Discord refuse les mots « discord » et « clyde ») |
 | `--webhook-batch` | 25 | envoyer dès N pseudos disponibles |
 | `--webhook-interval` | 60 | envoyer au plus tard toutes les N secondes |
 | `--no-summary` | | ne pas envoyer le récapitulatif final |

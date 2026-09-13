@@ -3,12 +3,14 @@ import unittest
 
 from discord_username_checker.http import HttpResponse, NetworkError
 from discord_username_checker.webhook import (
+    DEFAULT_BOT_NAME,
     MAX_CONTENT_LENGTH,
     AvailableNotifier,
     DiscordWebhook,
     chunk_available_names,
     format_available_messages,
     mask_webhook_url,
+    sanitize_bot_name,
     validate_webhook_url,
 )
 
@@ -72,7 +74,7 @@ class WebhookSendTests(unittest.TestCase):
         payload = hook.payloads[0]
         self.assertEqual(payload["content"], "salut")
         self.assertEqual(payload["allowed_mentions"], {"parse": []})
-        self.assertEqual(payload["username"], "Discord Username Checker")
+        self.assertEqual(payload["username"], "Vérificateur de pseudos")
 
     def test_rate_limited_then_ok(self):
         hook = FakeWebhook([HttpResponse(429, {}, json.dumps({"retry_after": 0.01})), HttpResponse(204)])
@@ -153,3 +155,21 @@ class WebhookHeadersTests(unittest.TestCase):
         with self.assertLogs(hook.logger, level="ERROR") as logs:
             self.assertFalse(hook.send("x"))
         self.assertTrue(any("Cloudflare" in line for line in logs.output))
+
+
+class BotNameTests(unittest.TestCase):
+    def test_forbidden_words_fall_back_to_default(self):
+        self.assertEqual(sanitize_bot_name("Discord Username Checker"), DEFAULT_BOT_NAME)
+        self.assertEqual(sanitize_bot_name("Clyde 2"), DEFAULT_BOT_NAME)
+        self.assertEqual(sanitize_bot_name(""), DEFAULT_BOT_NAME)
+        self.assertNotIn("discord", DEFAULT_BOT_NAME.lower())
+
+    def test_valid_name_kept_and_trimmed(self):
+        self.assertEqual(sanitize_bot_name("  Mon bot  "), "Mon bot")
+        self.assertEqual(len(sanitize_bot_name("x" * 100)), 80)
+
+    def test_webhook_uses_sanitized_name(self):
+        hook = FakeWebhook([HttpResponse(204)])
+        hook.bot_name = sanitize_bot_name("Discord Bot")
+        hook.send("x")
+        self.assertEqual(hook.payloads[0]["username"], DEFAULT_BOT_NAME)

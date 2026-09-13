@@ -16,7 +16,13 @@ from .generator import CHARSETS, build_candidates, validate_username
 from .ratelimit import RateLimiter
 from .runner import Runner, format_duration
 from .storage import ResultStore
-from .webhook import AvailableNotifier, DiscordWebhook, mask_webhook_url, validate_webhook_url
+from .webhook import (
+    DEFAULT_BOT_NAME,
+    AvailableNotifier,
+    DiscordWebhook,
+    mask_webhook_url,
+    validate_webhook_url,
+)
 
 ENV_WEBHOOK = "DISCORD_WEBHOOK_URL"
 EXIT_OK = 0
@@ -94,7 +100,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     hook = parser.add_argument_group("webhook Discord")
     hook.add_argument("--webhook", help=f"URL du webhook (ou variable {ENV_WEBHOOK})")
-    hook.add_argument("--webhook-name", default="Discord Username Checker", help="nom affiché du bot")
+    hook.add_argument(
+        "--webhook-name",
+        default=DEFAULT_BOT_NAME,
+        help="nom affiché du bot (Discord refuse les mots « discord » et « clyde »)",
+    )
     hook.add_argument("--webhook-batch", type=int, default=25, help="envoyer dès N pseudos disponibles (défaut : 25)")
     hook.add_argument("--webhook-interval", type=float, default=60.0, help="envoyer au plus tard toutes les N secondes (défaut : 60)")
     hook.add_argument("--no-summary", action="store_true", help="pas de message récapitulatif à la fin")
