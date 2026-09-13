@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "discord-username-checker"
+version = "1.0.0"
+description = "Vérificateur massif de disponibilité des pseudos Discord (4 caractères par défaut) avec notification par webhook."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+discord-username-checker = "discord_username_checker.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["discord_username_checker*"]

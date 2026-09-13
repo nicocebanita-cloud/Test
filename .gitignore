@@ -1,0 +1,16 @@
+# Sorties de l'outil
+resultats/
+*.csv
+disponibles.txt
+
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/

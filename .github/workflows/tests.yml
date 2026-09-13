@@ -1,0 +1,23 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Tests unitaires
+        run: python -m unittest -v
+      - name: Vérification de la ligne de commande
+        run: |
+          python -m discord_username_checker --help
+          python -m discord_username_checker --dry-run --pattern 'ab??' --limit 5
