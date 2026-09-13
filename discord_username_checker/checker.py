@@ -88,7 +88,12 @@ class UsernameChecker:
         self.max_rate_limit_retries = max(0, max_rate_limit_retries)
         self.base_backoff = max(0.0, base_backoff)
         self.max_backoff = max(0.0, max_backoff)
-        self.headers = {"User-Agent": user_agent}
+        self.headers = {
+            "User-Agent": user_agent,
+            "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
+            "Origin": "https://discord.com",
+            "Referer": "https://discord.com/register",
+        }
         if extra_headers:
             self.headers.update(extra_headers)
         self.logger = logger or logging.getLogger(__name__)

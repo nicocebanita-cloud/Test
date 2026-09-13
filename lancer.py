@@ -129,7 +129,8 @@ def assistant_configuration(existante: Optional[Dict[str, object]] = None) -> Di
             print("✅ Le webhook répond, un message de test est arrivé dans votre salon.")
             config["webhook"] = url
             break
-        print("❌ Discord a refusé le message. Vérifiez l'URL (webhook supprimé ?).")
+        print("❌ Le message de test n'est pas passé (détail sur la ligne au-dessus).")
+        print("   Si l'URL est bonne : vérifiez la connexion, un VPN ou un pare-feu, et que le programme est à jour.")
         if _demander("Réessayer avec une autre URL ? (o/n)", "o").lower().startswith("n"):
             raise SystemExit(1)
 

@@ -130,3 +130,26 @@ class NotifierTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WebhookHeadersTests(unittest.TestCase):
+    def test_user_agent_is_sent(self):
+        captured = {}
+
+        def fake_post_json(opener, url, payload, headers, timeout):
+            captured.update(headers=headers)
+            return HttpResponse(204)
+
+        from unittest import mock
+
+        hook = DiscordWebhook(URL)
+        with mock.patch("discord_username_checker.webhook.post_json", fake_post_json):
+            self.assertTrue(hook.send("x"))
+        self.assertIn("DiscordBot", captured["headers"]["User-Agent"])
+
+    def test_cloudflare_block_is_reported(self):
+        body = '{"title":"Error 1010: Access denied","status":403,"detail":"cloudflare"}'
+        hook = FakeWebhook([HttpResponse(403, {}, body)])
+        with self.assertLogs(hook.logger, level="ERROR") as logs:
+            self.assertFalse(hook.send("x"))
+        self.assertTrue(any("Cloudflare" in line for line in logs.output))

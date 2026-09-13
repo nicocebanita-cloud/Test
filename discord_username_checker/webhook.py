@@ -8,6 +8,7 @@ import threading
 import time
 from typing import Iterable, List, Optional
 
+from . import __version__
 from .http import HttpResponse, NetworkError, build_opener, parse_retry_after, post_json
 from .ratelimit import sleep_interruptible
 
@@ -16,6 +17,9 @@ WEBHOOK_URL_RE = re.compile(
 )
 MAX_CONTENT_LENGTH = 2000
 DEFAULT_BOT_NAME = "Discord Username Checker"
+# Sans User-Agent explicite, urllib se présente comme « Python-urllib », que Cloudflare
+# refuse devant Discord (erreur 1010). Format recommandé par la documentation Discord.
+DEFAULT_WEBHOOK_USER_AGENT = f"DiscordBot (https://github.com/nicocebanita-cloud/Test, {__version__})"
 
 
 def validate_webhook_url(url: str) -> bool:
@@ -65,6 +69,7 @@ class DiscordWebhook:
         timeout: float = 15.0,
         max_retries: int = 5,
         proxy: Optional[str] = None,
+        user_agent: str = DEFAULT_WEBHOOK_USER_AGENT,
         logger: Optional[logging.Logger] = None,
     ) -> None:
         if not validate_webhook_url(url):
@@ -75,6 +80,7 @@ class DiscordWebhook:
         self.bot_name = bot_name
         self.timeout = timeout
         self.max_retries = max(0, max_retries)
+        self.headers = {"User-Agent": user_agent}
         self.logger = logger or logging.getLogger(__name__)
         self._opener = build_opener(proxy)
         self._lock = threading.Lock()
@@ -82,7 +88,7 @@ class DiscordWebhook:
 
     # Isolé pour les tests.
     def _post(self, payload: dict) -> HttpResponse:
-        return post_json(self._opener, self.url, payload, {}, self.timeout)
+        return post_json(self._opener, self.url, payload, self.headers, self.timeout)
 
     def send(self, content: str, stop_event: Optional[threading.Event] = None) -> bool:
         """Envoie un message texte. Retourne ``True`` si Discord l'a accepté."""
@@ -130,6 +136,13 @@ class DiscordWebhook:
                         return False
                     sleep_interruptible(min(30.0, 2.0 ** attempt), stop_event)
                     continue
+                if response.status == 403 and "cloudflare" in response.body.lower():
+                    self.logger.error(
+                        "Webhook : requête bloquée par Cloudflare (HTTP 403). Vérifiez VPN, proxy ou "
+                        "pare-feu, et que le programme est à jour. Détail : %s",
+                        response.body[:200],
+                    )
+                    return False
                 self.logger.error(
                     "Webhook : refusé (HTTP %d) : %s", response.status, response.body[:200]
                 )
