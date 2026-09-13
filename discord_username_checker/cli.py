@@ -8,6 +8,7 @@ import os
 import signal
 import sys
 import threading
+import time
 from typing import List, Optional
 
 from . import __version__
@@ -15,7 +16,7 @@ from .checker import DEFAULT_ENDPOINT, DEFAULT_USER_AGENT, UsernameChecker
 from .generator import CHARSETS, build_candidates, validate_username
 from .ratelimit import RateLimiter
 from .runner import Runner, format_duration
-from .storage import ResultStore
+from .storage import ResultStore, load_pause_until, save_pause_until
 from .webhook import (
     DEFAULT_BOT_NAME,
     AvailableNotifier,
@@ -266,14 +267,30 @@ def main(argv: Optional[List[str]] = None) -> int:
             except (ValueError, OSError):
                 pass
 
+    pause_path = os.path.join(args.output_dir, "pause.json")
+    rate_limiter = RateLimiter(args.rps)
+    pause_until = load_pause_until(pause_path)
+    if pause_until:
+        remaining = pause_until - time.time()
+        logger.warning(
+            "Discord avait demandé d'attendre : reprise vers %s (%s restantes), aucune requête d'ici là",
+            time.strftime("%H:%M:%S", time.localtime(pause_until)),
+            format_duration(remaining),
+        )
+        rate_limiter.pause(remaining)
+
+    def _remember_pause(delay: float) -> None:
+        save_pause_until(pause_path, time.time() + delay)
+
     checker = UsernameChecker(
         endpoint=args.endpoint,
-        rate_limiter=RateLimiter(args.rps),
+        rate_limiter=rate_limiter,
         timeout=args.timeout,
         max_retries=args.max_retries,
         user_agent=args.user_agent,
         extra_headers=extra_headers,
         proxy=args.proxy,
+        on_rate_limited=_remember_pause,
         logger=logger,
     )
     runner = Runner(

@@ -141,6 +141,7 @@ Tout va dans le dossier `resultats/` (modifiable avec `--output-dir`) :
   webhook tombe en panne.
 - `resultats.csv` : `username,status,http_status,detail,checked_at` pour chaque pseudo
   testé. Les statuts possibles : `available`, `taken`, `invalid`, `error`, `unknown`.
+- `pause.json` : heure de reprise imposée par le dernier 429, respectée au relancement.
 
 À la relance, les pseudos avec un statut définitif (`available`, `taken`, `invalid`) sont
 ignorés ; `--no-resume` force une nouvelle vérification complète.

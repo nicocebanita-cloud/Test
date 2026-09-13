@@ -9,8 +9,9 @@ from __future__ import annotations
 import logging
 import random
 import threading
+import time
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional
 
 from .http import (
     HttpResponse,
@@ -44,7 +45,16 @@ FATAL_STATUSES = frozenset({STATUS_CAPTCHA, STATUS_BLOCKED})
 # Statuts comptés comme « problème » pour l'arrêt automatique.
 PROBLEM_STATUSES = frozenset({STATUS_ERROR, STATUS_UNKNOWN})
 
-MAX_PAUSE_SECONDS = 900.0
+MAX_PAUSE_SECONDS = 24 * 3600.0  # l'attente demandée par Discord est respectée jusqu'à 24 h
+
+
+def _human_duration(seconds: float) -> str:
+    seconds = int(max(0, seconds))
+    if seconds >= 3600:
+        return f"{seconds // 3600} h {(seconds % 3600) // 60:02d} min"
+    if seconds >= 60:
+        return f"{seconds // 60} min {seconds % 60:02d} s"
+    return f"{seconds} s"
 
 
 @dataclass
@@ -79,9 +89,11 @@ class UsernameChecker:
         user_agent: str = DEFAULT_USER_AGENT,
         extra_headers: Optional[Dict[str, str]] = None,
         proxy: Optional[str] = None,
+        on_rate_limited: Optional[Callable[[float], None]] = None,
         logger: Optional[logging.Logger] = None,
     ) -> None:
         self.endpoint = endpoint
+        self.on_rate_limited = on_rate_limited
         self.rate_limiter = rate_limiter or RateLimiter(2.0)
         self.timeout = timeout
         self.max_retries = max(0, max_retries)
@@ -147,14 +159,24 @@ class UsernameChecker:
                 rate_limit_attempts += 1
                 with self._stats_lock:
                     self.rate_limit_hits += 1
-                delay = min(MAX_PAUSE_SECONDS, parse_retry_after(response)) + 0.5
-                level = logging.DEBUG if self.rate_limiter.paused_for() > 0 else logging.WARNING
-                self.logger.log(
-                    level, "Limite de débit atteinte (429) : pause de %.1f s pour tous les threads", delay
-                )
+                requested = parse_retry_after(response)
+                delay = min(MAX_PAUSE_SECONDS, requested) + 0.5
+                if self.rate_limiter.paused_for() <= 0:
+                    self.logger.warning(
+                        "Discord limite le débit (429) et demande d'attendre %s : reprise vers %s "
+                        "(réponse : %s)",
+                        _human_duration(requested),
+                        time.strftime("%H:%M:%S", time.localtime(time.time() + delay)),
+                        response.body[:120].replace("\n", " ") or "sans corps",
+                    )
                 if rate_limit_attempts > self.max_rate_limit_retries:
                     return CheckResult(username, STATUS_ERROR, "trop de 429 consécutifs", status)
                 self.rate_limiter.pause(delay)
+                if self.on_rate_limited is not None:
+                    try:
+                        self.on_rate_limited(delay)
+                    except Exception:  # noqa: BLE001 - un rappel défaillant ne doit pas casser la vérification
+                        self.logger.debug("rappel on_rate_limited en erreur", exc_info=True)
                 continue
 
             if status == 400:

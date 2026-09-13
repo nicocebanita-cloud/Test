@@ -84,13 +84,9 @@ def parse_retry_after(response: HttpResponse, default: float = 5.0) -> float:
     data = response.json()
     if isinstance(data, dict) and "retry_after" in data:
         try:
-            value = float(data["retry_after"])
+            return max(0.0, float(data["retry_after"]))  # secondes (API v9)
         except (TypeError, ValueError):
             return default
-        # Les anciennes versions de l'API renvoyaient des millisecondes.
-        if value > 300:
-            value = value / 1000.0
-        return max(0.0, value)
     return default
 
 

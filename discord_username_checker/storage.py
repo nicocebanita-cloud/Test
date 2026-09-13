@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import csv
+import json
 import logging
 import os
 import threading
+import time
 from datetime import datetime, timezone
 from typing import Optional, Set
 
@@ -88,3 +90,19 @@ class ResultStore:
 
     def __exit__(self, *exc) -> None:
         self.close()
+
+
+def load_pause_until(path: str) -> float:
+    """Heure (epoch) jusqu'à laquelle Discord a demandé d'attendre, 0 si aucune ou dépassée."""
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            value = float(json.load(handle).get("pause_until", 0))
+    except (OSError, ValueError, AttributeError, TypeError):
+        return 0.0
+    return value if value > time.time() else 0.0
+
+
+def save_pause_until(path: str, pause_until: float) -> None:
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump({"pause_until": pause_until, "saved_at": time.time()}, handle)

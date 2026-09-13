@@ -129,3 +129,22 @@ class CheckerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RateLimitCallbackTests(unittest.TestCase):
+    def test_callback_receives_delay_and_long_wait_is_honoured(self):
+        limited = HttpResponse(429, {"retry-after": "3600"}, "")
+        checker = make_checker([limited, ok(True)], max_rate_limit_retries=1)
+        seen = []
+        stop = threading.Event()
+
+        def on_rate_limited(delay):
+            seen.append(delay)
+            stop.set()  # évite d'attendre réellement une heure : l'attente est interrompue
+
+        checker.on_rate_limited = on_rate_limited
+        result = checker.check("abcd", stop)
+        self.assertEqual(result.status, STATUS_CANCELLED)
+        self.assertEqual(len(seen), 1)
+        self.assertGreaterEqual(seen[0], 3600)
+        self.assertGreater(checker.rate_limiter.paused_for(), 3500)

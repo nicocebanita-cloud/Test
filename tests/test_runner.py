@@ -94,3 +94,13 @@ class RunnerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PausedProgressTests(unittest.TestCase):
+    def test_progress_shows_pause_instead_of_eta(self):
+        checker = ScriptedChecker(lambda name: HttpResponse(200, {}, json.dumps({"taken": True})))
+        runner = Runner(checker, iter([]), 10, workers=1)
+        checker.rate_limiter.pause(120)
+        line = runner._progress()
+        self.assertIn("en pause (429)", line)
+        self.assertNotIn("ETA", line)

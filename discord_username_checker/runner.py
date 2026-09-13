@@ -198,13 +198,15 @@ class Runner:
             parts.append(f"invalides {stats.invalid}")
         if stats.errors or stats.unknown:
             parts.append(f"erreurs {stats.errors + stats.unknown}")
+        paused = self.checker.rate_limiter.paused_for()
+        if paused > 1:
+            reprise = time.strftime("%H:%M:%S", time.localtime(time.time() + paused))
+            parts.append(f"⏸ en pause (429) jusqu'à {reprise}, reste {format_duration(paused)}")
+            return " · ".join(parts)
         parts.append(f"{rate:.2f} req/s")
         if remaining_total and rate > 0:
             eta = (remaining_total - stats.checked) / rate
             parts.append(f"ETA {format_duration(eta)}")
-        paused = self.checker.rate_limiter.paused_for()
-        if paused > 1:
-            parts.append(f"pause 429 {format_duration(paused)}")
         return " · ".join(parts)
 
     def run(self) -> Stats:

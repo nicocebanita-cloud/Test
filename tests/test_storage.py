@@ -4,7 +4,9 @@ import tempfile
 import unittest
 
 from discord_username_checker.checker import STATUS_AVAILABLE, STATUS_ERROR, STATUS_TAKEN, CheckResult
-from discord_username_checker.storage import ResultStore
+import time
+
+from discord_username_checker.storage import ResultStore, load_pause_until, save_pause_until
 
 
 class ResultStoreTests(unittest.TestCase):
@@ -45,3 +47,18 @@ class ResultStoreTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PauseFileTests(unittest.TestCase):
+    def test_round_trip_and_expiry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "sous", "pause.json")
+            self.assertEqual(load_pause_until(path), 0.0)
+            future = time.time() + 600
+            save_pause_until(path, future)
+            self.assertAlmostEqual(load_pause_until(path), future, places=3)
+            save_pause_until(path, time.time() - 5)
+            self.assertEqual(load_pause_until(path), 0.0)
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("corrompu")
+            self.assertEqual(load_pause_until(path), 0.0)

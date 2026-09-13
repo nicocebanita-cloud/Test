@@ -12,9 +12,9 @@ class ParseRetryAfterTests(unittest.TestCase):
         response = HttpResponse(429, {}, '{"retry_after": 2.5}')
         self.assertEqual(parse_retry_after(response), 2.5)
 
-    def test_json_milliseconds_legacy(self):
+    def test_long_json_wait_is_kept_in_seconds(self):
         response = HttpResponse(429, {}, '{"retry_after": 1500}')
-        self.assertEqual(parse_retry_after(response), 1.5)
+        self.assertEqual(parse_retry_after(response), 1500.0)
 
     def test_default(self):
         response = HttpResponse(429, {}, "pas du json")
