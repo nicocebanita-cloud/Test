@@ -13,7 +13,41 @@ Outil en ligne de commande qui vérifie **en masse** la disponibilité des pseud
 - **Webhook** : les pseudos disponibles partent par lots (dès 25 trouvés ou toutes les
   60 s), plus un récapitulatif à la fin.
 
-## Installation
+## Lancement automatique (le plus simple)
+
+1. Installez Python 3 (python.org ; sur Windows cochez « Add Python to PATH »).
+2. Récupérez le dossier du projet (`git clone` ou « Code → Download ZIP » sur GitHub).
+3. Lancez :
+   - **Windows** : double-cliquez sur `Lancer.bat`
+   - **Mac / Linux** : `./lancer.sh` dans un terminal
+   - ou, partout : `python lancer.py`
+
+Au premier lancement, un assistant demande l'URL de votre webhook Discord, envoie un
+message de test dans votre salon et enregistre le tout dans `config.json`. Ensuite, la
+vérification massive démarre toute seule et :
+
+- reprend là où elle s'était arrêtée à chaque relance ;
+- redémarre d'elle-même après une erreur ou un plantage (pause de 60 s), et après un
+  blocage de Discord comme un captcha ou un 403 (pause de 30 min), en vous prévenant
+  sur le webhook ;
+- s'arrête proprement avec Ctrl+C, et une fois tous les pseudos vérifiés ;
+- écrit tout ce qui s'affiche dans `resultats/journal.log`.
+
+Pour changer les réglages, modifiez `config.json` (jeu de caractères, vitesse, motif,
+temps de pause, nombre de relances) ou relancez avec `python lancer.py --reconfigurer`.
+Toute option du vérificateur peut être ajoutée à la suite, par exemple
+`python lancer.py --pattern 'a??z'`. Ne partagez pas `config.json` : il contient le
+token du webhook (il est ignoré par Git).
+
+### Démarrer avec l'ordinateur (facultatif)
+
+- **Windows** : Planificateur de tâches → Créer une tâche de base → déclencheur
+  « À l'ouverture de session » → action « Démarrer un programme » → parcourir jusqu'à
+  `Lancer.bat`, et renseignez le dossier du projet dans « Commencer dans ».
+- **Mac / Linux** : `crontab -e` puis ajoutez
+  `@reboot cd /chemin/vers/Test && ./lancer.sh >> resultats/cron.log 2>&1`.
+
+## Installation manuelle
 
 ```bash
 git clone https://github.com/nicocebanita-cloud/Test.git

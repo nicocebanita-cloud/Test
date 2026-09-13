@@ -245,7 +245,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         logger.warning("Signal %s reçu : arrêt propre en cours…", signum)
         stop_event.set()
 
-    for sig in (getattr(signal, "SIGTERM", None), getattr(signal, "SIGHUP", None)):
+    for sig in (
+        getattr(signal, "SIGTERM", None),
+        getattr(signal, "SIGHUP", None),
+        getattr(signal, "SIGBREAK", None),  # Windows : Ctrl+Break, ou arrêt demandé par lancer.py
+    ):
         if sig is not None:
             try:
                 signal.signal(sig, _on_signal)

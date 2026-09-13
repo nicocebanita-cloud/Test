@@ -3,8 +3,9 @@ resultats/
 *.csv
 disponibles.txt
 
-# Secrets
+# Secrets (le fichier contient le token du webhook)
 .env
+config.json
 
 # Python
 __pycache__/
