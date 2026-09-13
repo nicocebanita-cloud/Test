@@ -36,8 +36,24 @@ EXIT_FATAL_CHECKER = 2  # code renvoyé par le vérificateur sur captcha, 403 ou
 
 BRANCHE = "claude/discord-4-letter-username-checker-c8lyhz"
 UPDATE_ZIP_URL = f"https://github.com/nicocebanita-cloud/Test/archive/refs/heads/{BRANCHE}.zip"
-# Jamais écrasés par une mise à jour : la configuration et les résultats de l'utilisateur.
-FICHIERS_PRESERVES = {"config.json", "resultats"}
+# Jamais écrasés par une mise à jour : la configuration, la liste et les résultats de l'utilisateur.
+FICHIERS_PRESERVES = {"config.json", "resultats", "pseudos.txt"}
+PSEUDOS_PATH = ROOT / "pseudos.txt"
+
+MODELE_PSEUDOS = """\
+# Liste des pseudos Discord à surveiller : un par ligne, en minuscules.
+# Autorisé : lettres a-z, chiffres, _ et . (pas deux points de suite).
+# Les lignes qui commencent par # sont ignorées.
+#
+# Discord n'autorise qu'environ 5 vérifications par heure et par adresse IP :
+# une liste de 20 pseudos est parcourue en 4 h environ, puis re-vérifiée chaque jour.
+# Vous serez prévenu sur le webhook dès qu'un pseudo de la liste se libère.
+#
+# Exemples (retirez le # pour les activer) :
+# nova
+# zed_
+# k.o.
+"""
 
 DEFAULT_CONFIG: Dict[str, object] = {
     "_aide": (
@@ -46,8 +62,12 @@ DEFAULT_CONFIG: Dict[str, object] = {
         "pattern : motif avec ? (vide = toutes les combinaisons). limit : 0 = pas de limite. "
         "pause_blocage_minutes : attente après un blocage Discord. "
         "pause_erreur_secondes : attente après une erreur. "
-        "relances_max_blocage / relances_max_erreur : nombre de tentatives avant abandon."
+        "relances_max_blocage / relances_max_erreur : nombre de tentatives avant abandon. "
+        "mode : surveillance (liste pseudos.txt re-vérifiée toutes les recheck_heures) ou massif."
     ),
+    "mode": "surveillance",
+    "pseudos": "pseudos.txt",
+    "recheck_heures": 24,
     "webhook": "",
     "charset": "letters",
     "length": 4,
@@ -193,19 +213,45 @@ def notifier(config: Dict[str, object], texte: str) -> None:
 # Exécution du vérificateur
 # ---------------------------------------------------------------------------
 
+def compter_pseudos(path: Path) -> int:
+    """Nombre de pseudos actifs (lignes non vides, hors commentaires) dans la liste."""
+    try:
+        lignes = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return 0
+    return sum(1 for l in lignes if l.strip() and not l.strip().startswith("#"))
+
+
+def mode_surveillance(config: Dict[str, object]) -> bool:
+    return str(config.get("mode") or "surveillance").strip().lower() != "massif"
+
+
 def construire_commande(config: Dict[str, object], extra: Optional[List[str]] = None) -> List[str]:
     commande = [
         sys.executable,
         "-m",
         "discord_username_checker",
         "--webhook", str(config["webhook"]),
-        "--charset", str(config["charset"]),
-        "--length", str(int(config["length"])),
         "--rps", str(config["rps"]),
-        "--workers", str(int(config["workers"])),
-        "--webhook-batch", str(int(config["webhook_batch"])),
         "--webhook-interval", str(config["webhook_interval"]),
         "--output-dir", str(config["output_dir"]),
+    ]
+    if mode_surveillance(config):
+        commande += [
+            "--surveiller",
+            "--wordlist", str(config.get("pseudos") or "pseudos.txt"),
+            "--recheck-hours", str(config.get("recheck_heures", 24)),
+            "--workers", "1",
+            "--no-summary",
+        ]
+        if extra:
+            commande += list(extra)
+        return commande
+    commande += [
+        "--charset", str(config["charset"]),
+        "--length", str(int(config["length"])),
+        "--workers", str(int(config["workers"])),
+        "--webhook-batch", str(int(config["webhook_batch"])),
     ]
     pattern = str(config.get("pattern") or "").strip()
     if pattern:
@@ -424,9 +470,26 @@ def main(argv: Optional[List[str]] = None) -> int:
             print("\nConfiguration annulée.")
             return 1
 
+    if mode_surveillance(config):
+        pseudos = ROOT / str(config.get("pseudos") or "pseudos.txt")
+        if not pseudos.exists():
+            pseudos.write_text(MODELE_PSEUDOS, encoding="utf-8")
+        nombre = compter_pseudos(pseudos)
+        if nombre == 0:
+            print("📝 Aucun pseudo à surveiller pour l'instant.")
+            print(f"   Ouvrez le fichier {pseudos} avec le Bloc-notes, écrivez les pseudos qui vous")
+            print("   intéressent (un par ligne), enregistrez, puis relancez.")
+            print("   Discord n'autorise qu'environ 5 vérifications par heure : une liste courte suffit.")
+            return 1
+        print(f"👀 Mode surveillance : {nombre} pseudo(s) dans {pseudos.name}, re-vérifiés toutes les "
+              f"{config.get('recheck_heures', 24)} h.")
+    else:
+        print("⚠️  Mode massif : Discord n'autorise qu'environ 5 vérifications par heure, un balayage complet")
+        print("   prendra des années. Passez mode à \"surveillance\" dans config.json pour une liste ciblée.")
+
     journal = ROOT / str(config["output_dir"]) / "journal.log"
     print(f"📓 Journal : {journal}")
-    print("▶️  Démarrage de la vérification (Ctrl+C pour arrêter, la reprise est automatique).")
+    print("▶️  Démarrage (Ctrl+C pour arrêter, la reprise est automatique).")
     print()
 
     relances_blocage = 0

@@ -1,7 +1,8 @@
 # Discord Username Checker
 
-Outil en ligne de commande qui vérifie **en masse** la disponibilité des pseudos Discord
-(4 caractères par défaut) et envoie ceux qui sont libres sur un **webhook Discord**.
+Outil en ligne de commande qui surveille la disponibilité de pseudos Discord et vous
+prévient sur un **webhook Discord** dès que l'un d'eux se libère. Il sait aussi balayer
+des combinaisons en masse, mais Discord limite fortement cet usage (voir plus bas).
 
 - **Aucune dépendance** : Python 3.9+ et sa bibliothèque standard, rien à installer.
 - **Aucun token de compte** : l'outil utilise l'endpoint public que la page d'inscription
@@ -23,8 +24,15 @@ Outil en ligne de commande qui vérifie **en masse** la disponibilité des pseud
    - ou, partout : `python lancer.py`
 
 Au premier lancement, un assistant demande l'URL de votre webhook Discord, envoie un
-message de test dans votre salon et enregistre le tout dans `config.json`. Ensuite, la
-vérification massive démarre toute seule et :
+message de test dans votre salon et enregistre le tout dans `config.json`. Un fichier
+`pseudos.txt` est créé à côté : ouvrez-le avec le Bloc-notes, écrivez les pseudos qui vous
+intéressent (un par ligne) et relancez. La surveillance démarre alors toute seule et :
+
+- vérifie chaque pseudo de la liste au rythme autorisé par Discord (environ 5 par heure
+  et par adresse IP), puis les re-vérifie toutes les 24 h (`recheck_heures` dans
+  `config.json`) ;
+- vous prévient sur le webhook à l'instant où un pseudo de la liste devient disponible
+  (une seule fois, tant qu'il reste libre) ;
 
 - reprend là où elle s'était arrêtée à chaque relance ;
 - redémarre d'elle-même après une erreur ou un plantage (pause de 60 s), et après un
@@ -88,6 +96,23 @@ python -m discord_username_checker --charset letters --rps 2 --workers 2
 Sur Windows, remplacez `export ...` par `set DISCORD_WEBHOOK_URL=...` (ou passez
 `--webhook <url>` sur la ligne de commande).
 
+## Pourquoi une liste plutôt qu'un balayage
+
+Discord n'autorise qu'une poignée de vérifications par adresse IP, puis répond 429
+« Le nombre d'actions de la ressource est limité » avec une attente d'environ 30 minutes.
+Cela fait à peu près 5 pseudos par heure, soit 120 par jour : les 456 976 combinaisons
+de 4 lettres demanderaient une dizaine d'années. Le mode surveillance tire le meilleur
+parti de ce quota : une liste courte de pseudos que vous voulez vraiment, parcourue en
+quelques heures puis re-vérifiée chaque jour, avec une alerte dès qu'un pseudo se libère
+(un compte supprimé rend son pseudo au bout d'un certain temps).
+
+En ligne de commande, la surveillance s'active avec `--surveiller`, sur les pseudos donnés
+en argument ou dans `--wordlist`, avec `--recheck-hours` (défaut 24) et `--cycles` pour
+limiter le nombre de passages (défaut : sans fin).
+
+Le mode massif reste disponible (`"mode": "massif"` dans `config.json`, ou les options
+ci-dessous sans `--surveiller`), pour de petites cibles comme un motif `--pattern`.
+
 ## Choisir quoi tester
 
 | Option | Effet |
@@ -129,9 +154,11 @@ Ce que fait l'outil quand Discord réagit :
 - **Réponse inattendue** : marquée `unknown`, avec le corps de la réponse dans le CSV.
   Si cela se répète, l'API a probablement changé : l'outil s'arrête tout seul.
 
-Commencez prudemment (`--rps 2`) et augmentez seulement si aucun 429 n'apparaît.
-Une vérification massive reste une utilisation intensive d'un service tiers : elle se fait
-à vos risques, et Discord peut limiter temporairement votre adresse IP.
+**Limite constatée en pratique.** Environ 5 requêtes par adresse IP, puis un 429 avec une
+attente d'environ 30 minutes. L'outil respecte cette attente intégralement, l'affiche avec
+l'heure de reprise, et la mémorise dans `resultats/pause.json` : si vous relancez avant
+l'heure, il patiente au lieu de réessayer et d'allonger le blocage. L'option `--rps` ne
+sert donc qu'à espacer les requêtes ; elle ne permet pas de dépasser ce quota.
 
 ## Fichiers produits
 

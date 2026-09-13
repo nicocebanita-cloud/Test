@@ -62,3 +62,19 @@ class PauseFileTests(unittest.TestCase):
             with open(path, "w", encoding="utf-8") as handle:
                 handle.write("corrompu")
             self.assertEqual(load_pause_until(path), 0.0)
+
+
+class LoadLatestTests(unittest.TestCase):
+    def test_last_row_wins(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            results = os.path.join(tmp, "resultats.csv")
+            available = os.path.join(tmp, "disponibles.txt")
+            with ResultStore(results, available) as store:
+                store.record(CheckResult("abcd", STATUS_TAKEN, http_status=200))
+                store.record(CheckResult("abcd", STATUS_AVAILABLE, http_status=200))
+                store.record(CheckResult("efgh", STATUS_ERROR, "réseau"))
+            latest = ResultStore(results, available).load_latest()
+            self.assertEqual(latest["abcd"][0], STATUS_AVAILABLE)
+            self.assertEqual(latest["efgh"][0], STATUS_ERROR)
+            self.assertAlmostEqual(latest["abcd"][1], time.time(), delta=5)
+            self.assertEqual(ResultStore(os.path.join(tmp, "x.csv"), available).load_latest(), {})

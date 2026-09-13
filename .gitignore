@@ -1,5 +1,6 @@
-# Sorties de l'outil
+# Sorties et données de l'utilisateur
 resultats/
+pseudos.txt
 *.csv
 disponibles.txt
 

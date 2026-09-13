@@ -9,7 +9,7 @@ import os
 import threading
 import time
 from datetime import datetime, timezone
-from typing import Optional, Set
+from typing import Dict, Optional, Set, Tuple
 
 from .checker import FINAL_STATUSES, CheckResult
 
@@ -46,6 +46,24 @@ class ResultStore:
                 if username and status in FINAL_STATUSES:
                     checked.add(username)
         return checked
+
+    def load_latest(self) -> Dict[str, Tuple[str, float]]:
+        """Dernier statut connu de chaque pseudo : ``{pseudo: (statut, epoch de la vérification)}``."""
+        latest: Dict[str, Tuple[str, float]] = {}
+        if not os.path.exists(self.results_path):
+            return latest
+        with open(self.results_path, "r", encoding="utf-8", newline="") as handle:
+            for row in csv.DictReader(handle):
+                username = (row.get("username") or "").strip()
+                status = (row.get("status") or "").strip()
+                if not username or not status:
+                    continue
+                try:
+                    stamp = datetime.fromisoformat(row.get("checked_at") or "").timestamp()
+                except ValueError:
+                    stamp = 0.0
+                latest[username] = (status, stamp)
+        return latest
 
     def open(self) -> None:
         for path in (self.results_path, self.available_path):

@@ -12,9 +12,15 @@ import time
 from typing import List, Optional
 
 from . import __version__
-from .checker import DEFAULT_ENDPOINT, DEFAULT_USER_AGENT, UsernameChecker
-from .generator import CHARSETS, build_candidates, validate_username
-from .ratelimit import RateLimiter
+from .checker import (
+    DEFAULT_ENDPOINT,
+    DEFAULT_USER_AGENT,
+    FINAL_STATUSES,
+    STATUS_AVAILABLE,
+    UsernameChecker,
+)
+from .generator import CHARSETS, build_candidates, read_wordlist, validate_username
+from .ratelimit import RateLimiter, sleep_interruptible
 from .runner import Runner, format_duration
 from .storage import ResultStore, load_pause_until, save_pause_until
 from .webhook import (
@@ -110,7 +116,60 @@ def build_parser() -> argparse.ArgumentParser:
     hook.add_argument("--webhook-interval", type=float, default=60.0, help="envoyer au plus tard toutes les N secondes (défaut : 60)")
     hook.add_argument("--no-summary", action="store_true", help="pas de message récapitulatif à la fin")
     hook.add_argument("--test-webhook", action="store_true", help="envoie un message de test puis quitte")
+
+    watch = parser.add_argument_group("surveillance (recommandé vu la limite de Discord)")
+    watch.add_argument(
+        "--surveiller",
+        action="store_true",
+        help="vérifie en boucle les pseudos de --wordlist (ou donnés en argument) et prévient dès qu'un se libère",
+    )
+    watch.add_argument(
+        "--recheck-hours",
+        type=float,
+        default=24.0,
+        help="en surveillance : re-vérifier chaque pseudo toutes les N heures (défaut : 24)",
+    )
+    watch.add_argument(
+        "--cycles",
+        type=int,
+        default=0,
+        help="en surveillance : s'arrêter après N passages (défaut : 0, sans fin)",
+    )
     return parser
+
+
+class ChangeOnlyNotifier:
+    """En surveillance : ne signale un pseudo que s'il n'était pas déjà connu disponible."""
+
+    def __init__(self, notifier: Optional[AvailableNotifier], latest: dict, logger: logging.Logger) -> None:
+        self.notifier = notifier
+        self.latest = latest
+        self.logger = logger
+
+    def add(self, username: str) -> None:
+        previous = self.latest.get(username, ("", 0.0))[0]
+        if previous == STATUS_AVAILABLE:
+            self.logger.info("%s est toujours disponible (déjà signalé)", username)
+            return
+        if self.notifier is not None:
+            self.notifier.add(username)
+
+
+def due_for_check(names, latest: dict, now: float, recheck_seconds: float) -> list:
+    """Pseudos à vérifier : jamais vus, en erreur depuis un moment, ou vus il y a plus de ``recheck_seconds``."""
+    retry_error_seconds = min(recheck_seconds, 600.0)
+    due = []
+    for name in names:
+        if name not in latest:
+            due.append(name)
+            continue
+        status, stamp = latest[name]
+        if status not in FINAL_STATUSES:
+            if now - stamp >= retry_error_seconds:
+                due.append(name)
+        elif now - stamp >= recheck_seconds:
+            due.append(name)
+    return due
 
 
 def parse_headers(values: List[str]) -> dict:
@@ -150,6 +209,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         parser.error("--rps doit être > 0")
     if args.pattern and args.wordlist:
         parser.error("--pattern et --wordlist sont exclusifs")
+    if args.surveiller and args.recheck_hours < 0:
+        parser.error("--recheck-hours doit être >= 0")
 
     try:
         extra_headers = parse_headers(args.header)
@@ -186,10 +247,26 @@ def main(argv: Optional[List[str]] = None) -> int:
         reason = validate_username(name.strip().lower())
         if reason:
             logger.warning("Pseudo ignoré car invalide (%s) : %s", reason, name)
-    explicit = [n for n in explicit if validate_username(n.strip().lower()) is None]
+    explicit = [n.strip().lower() for n in explicit if validate_username(n.strip().lower()) is None]
     if args.usernames and not explicit:
         logger.error("Aucun pseudo valide à vérifier.")
         return EXIT_ERROR
+
+    watch_names: List[str] = []
+    if args.surveiller:
+        try:
+            watch_names = list(dict.fromkeys(explicit + (read_wordlist(args.wordlist) if args.wordlist else [])))
+        except OSError as error:
+            logger.error("Impossible de lire la liste à surveiller : %s", error)
+            return EXIT_ERROR
+        for name in list(watch_names):
+            reason = validate_username(name)
+            if reason:
+                logger.warning("Pseudo ignoré car invalide (%s) : %s", reason, name)
+                watch_names.remove(name)
+        if not watch_names:
+            logger.error("Rien à surveiller : donnez des pseudos en argument ou un fichier avec --wordlist.")
+            return EXIT_ERROR
 
     try:
         candidates, total = build_candidates(
@@ -230,7 +307,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         logger=logger,
     )
     already_checked = set()
-    if not args.no_resume and not explicit:
+    if not args.no_resume and not explicit and not args.surveiller:
         already_checked = store.load_checked()
         if already_checked:
             logger.info("Reprise : %d pseudo(s) déjà vérifié(s) seront ignorés", len(already_checked))
@@ -244,7 +321,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if webhook is not None:
         notifier = AvailableNotifier(
             webhook,
-            batch_size=args.webhook_batch,
+            batch_size=1 if args.surveiller else args.webhook_batch,  # en surveillance : alerte immédiate
             flush_interval=args.webhook_interval,
             logger=logger,
         )
@@ -293,6 +370,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         on_rate_limited=_remember_pause,
         logger=logger,
     )
+    if args.surveiller:
+        try:
+            return run_watch(args, watch_names, checker, store, notifier, stop_event, logger)
+        finally:
+            if notifier is not None:
+                notifier.stop()
+            store.close()
+
     runner = Runner(
         checker,
         candidates,
@@ -341,6 +426,79 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if stats.fatal is not None or stats.aborted_reason:
         return EXIT_FATAL
+    return EXIT_OK
+
+
+def run_watch(
+    args,
+    names: List[str],
+    checker: UsernameChecker,
+    store: ResultStore,
+    notifier: Optional[AvailableNotifier],
+    stop_event: threading.Event,
+    logger: logging.Logger,
+) -> int:
+    """Boucle de surveillance : vérifie ce qui est dû, prévient, attend la prochaine échéance."""
+    recheck_seconds = args.recheck_hours * 3600.0
+    logger.info(
+        "Surveillance de %d pseudo(s), re-vérification toutes les %g h, au rythme autorisé par Discord",
+        len(names),
+        args.recheck_hours,
+    )
+    if notifier is not None:
+        notifier.send_text(
+            f"👀 Surveillance démarrée : {len(names)} pseudo(s), re-vérifiés toutes les "
+            f"{args.recheck_hours:g} h. Vous serez prévenu dès qu'un pseudo se libère."
+        )
+    passes = 0
+    try:
+        while not stop_event.is_set():
+            passes += 1
+            latest = store.load_latest()
+            now = time.time()
+            due = due_for_check(names, latest, now, recheck_seconds)
+            if due:
+                logger.info("Passage %d : %d pseudo(s) à vérifier sur %d", passes, len(due), len(names))
+                runner = Runner(
+                    checker,
+                    iter(due),
+                    len(due),
+                    workers=1,
+                    store=store,
+                    notifier=ChangeOnlyNotifier(notifier, latest, logger),
+                    already_checked=set(),
+                    abort_after_problems=args.abort_after_problems,
+                    progress_interval=args.progress_interval,
+                    log_every_result=True,
+                    logger=logger,
+                    stop_event=stop_event,
+                )
+                stats = runner.run()
+                logger.info("Passage %d terminé : %s", passes, stats.summary())
+                if stats.fatal is not None or stats.aborted_reason:
+                    return EXIT_FATAL
+                if stop_event.is_set():
+                    break
+                if args.cycles and passes >= args.cycles:
+                    break
+                continue  # ré-évalue tout de suite : il peut rester des pseudos en erreur à retenter
+            if args.cycles and passes >= args.cycles:
+                break
+            checked = [latest[n][1] for n in names if n in latest]
+            next_due = min(checked) + recheck_seconds if checked else now
+            wait = min(max(next_due - now, 30.0), 3600.0)
+            logger.info(
+                "Tout est à jour. Prochaine vérification prévue %s (dans %s) ; nouveau contrôle dans %s.",
+                time.strftime("le %d/%m à %H:%M", time.localtime(next_due)),
+                format_duration(next_due - now),
+                format_duration(wait),
+            )
+            if not sleep_interruptible(wait, stop_event):
+                break
+    except KeyboardInterrupt:
+        logger.warning("Interruption demandée : arrêt de la surveillance.")
+        stop_event.set()
+    logger.info("Surveillance arrêtée après %d passage(s).", passes)
     return EXIT_OK
 
 

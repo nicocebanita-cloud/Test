@@ -49,8 +49,26 @@ class DeciderTests(unittest.TestCase):
 
 
 class CommandeTests(unittest.TestCase):
+    def test_surveillance_is_default(self):
+        commande = lancer.construire_commande(config_test(recheck_heures=12), ["--cycles", "1"])
+        self.assertIn("--surveiller", commande)
+        self.assertEqual(commande[commande.index("--wordlist") + 1], "pseudos.txt")
+        self.assertEqual(commande[commande.index("--recheck-hours") + 1], "12")
+        self.assertEqual(commande[commande.index("--workers") + 1], "1")
+        self.assertNotIn("--charset", commande)
+        self.assertEqual(commande[-2:], ["--cycles", "1"])
+
+    def test_compter_pseudos_and_template(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "pseudos.txt"
+            path.write_text(lancer.MODELE_PSEUDOS, encoding="utf-8")
+            self.assertEqual(lancer.compter_pseudos(path), 0)  # le modèle ne contient que des commentaires
+            path.write_text("# titre\nnova\n\nzed_\n", encoding="utf-8")
+            self.assertEqual(lancer.compter_pseudos(path), 2)
+            self.assertEqual(lancer.compter_pseudos(Path(tmp) / "absent.txt"), 0)
+
     def test_base_command(self):
-        commande = lancer.construire_commande(config_test())
+        commande = lancer.construire_commande(config_test(mode="massif"))
         self.assertEqual(commande[:3], [sys.executable, "-m", "discord_username_checker"])
         self.assertIn("--webhook", commande)
         self.assertEqual(commande[commande.index("--charset") + 1], "letters")
@@ -58,7 +76,9 @@ class CommandeTests(unittest.TestCase):
         self.assertNotIn("--limit", commande)
 
     def test_pattern_limit_and_extra(self):
-        commande = lancer.construire_commande(config_test(pattern="a??z", limit=50), ["--endpoint", "http://x"])
+        commande = lancer.construire_commande(
+            config_test(mode="massif", pattern="a??z", limit=50), ["--endpoint", "http://x"]
+        )
         self.assertEqual(commande[commande.index("--pattern") + 1], "a??z")
         self.assertEqual(commande[commande.index("--limit") + 1], "50")
         self.assertEqual(commande[-2:], ["--endpoint", "http://x"])
