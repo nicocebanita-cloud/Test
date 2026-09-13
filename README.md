@@ -39,6 +39,14 @@ Toute option du vérificateur peut être ajoutée à la suite, par exemple
 `python lancer.py --pattern 'a??z'`. Ne partagez pas `config.json` : il contient le
 token du webhook (il est ignoré par Git).
 
+### Mettre à jour
+
+- **Windows** : double-cliquez sur `MettreAJour.bat`.
+- **Mac / Linux** : `./lancer.sh --mettre-a-jour`.
+
+La dernière version est téléchargée et installée par-dessus l'ancienne ; `config.json` et
+le dossier `resultats/` sont conservés. Relancez ensuite normalement.
+
 ### Démarrer avec l'ordinateur (facultatif)
 
 - **Windows** : Planificateur de tâches → Créer une tâche de base → déclencheur

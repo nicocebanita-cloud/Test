@@ -16,12 +16,16 @@ Utilisation : double-cliquez sur ``Lancer.bat`` (Windows) ou lancez ``./lancer.s
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
 import time
+import urllib.request
+import zipfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -29,6 +33,11 @@ ROOT = Path(__file__).resolve().parent
 CONFIG_PATH = ROOT / "config.json"
 
 EXIT_FATAL_CHECKER = 2  # code renvoyé par le vérificateur sur captcha, 403 ou erreurs en série
+
+BRANCHE = "claude/discord-4-letter-username-checker-c8lyhz"
+UPDATE_ZIP_URL = f"https://github.com/nicocebanita-cloud/Test/archive/refs/heads/{BRANCHE}.zip"
+# Jamais écrasés par une mise à jour : la configuration et les résultats de l'utilisateur.
+FICHIERS_PRESERVES = {"config.json", "resultats"}
 
 DEFAULT_CONFIG: Dict[str, object] = {
     "_aide": (
@@ -315,6 +324,61 @@ def attendre(secondes: float) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Mise à jour
+# ---------------------------------------------------------------------------
+
+def telecharger(url: str, timeout: float = 120.0) -> bytes:
+    requete = urllib.request.Request(url, headers={"User-Agent": "lancer.py (mise a jour)"})
+    with urllib.request.urlopen(requete, timeout=timeout) as reponse:
+        return reponse.read()
+
+
+def installer_zip(donnees: bytes, destination: Path) -> int:
+    """Décompresse l'archive GitHub par-dessus ``destination``. Retourne le nombre de fichiers écrits."""
+    ecrits = 0
+    with zipfile.ZipFile(io.BytesIO(donnees)) as archive:
+        entrees = [e for e in archive.infolist() if not e.is_dir()]
+        if not entrees:
+            raise ValueError("archive vide")
+        racine = entrees[0].filename.split("/")[0]  # dossier ajouté par GitHub (Test-<branche>/)
+        for entree in entrees:
+            morceaux = entree.filename.split("/")
+            if morceaux[0] != racine or len(morceaux) < 2:
+                continue
+            relatif = morceaux[1:]
+            if relatif[0] in FICHIERS_PRESERVES or ".." in relatif:
+                continue
+            cible = destination.joinpath(*relatif)
+            cible.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(entree) as source, open(cible, "wb") as fichier:
+                shutil.copyfileobj(source, fichier)
+            ecrits += 1
+    return ecrits
+
+
+def mettre_a_jour() -> int:
+    """Met le programme à jour : ``git pull`` si possible, sinon téléchargement de l'archive."""
+    if (ROOT / ".git").exists() and shutil.which("git"):
+        print("⬇️  Mise à jour avec git pull…")
+        resultat = subprocess.run(["git", "pull", "--ff-only"], cwd=str(ROOT))
+        if resultat.returncode == 0:
+            print("✅ Programme à jour. Relancez Lancer.bat (ou ./lancer.sh).")
+            return 0
+        print("⚠️  git pull a échoué, passage au téléchargement de l'archive.")
+    print("⬇️  Téléchargement de la dernière version…")
+    try:
+        donnees = telecharger(UPDATE_ZIP_URL)
+        ecrits = installer_zip(donnees, ROOT)
+    except Exception as error:  # noqa: BLE001 - tout échec doit être expliqué à l'utilisateur
+        print(f"❌ Mise à jour impossible : {error}")
+        print(f"   Téléchargez l'archive à la main : {UPDATE_ZIP_URL}")
+        return 1
+    print(f"✅ {ecrits} fichier(s) mis à jour (config.json et resultats/ conservés).")
+    print("   Relancez Lancer.bat (ou ./lancer.sh).")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Point d'entrée
 # ---------------------------------------------------------------------------
 
@@ -342,7 +406,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     parser.add_argument("--reconfigurer", action="store_true", help="relancer l'assistant de configuration")
     parser.add_argument("--une-fois", action="store_true", help="un seul passage, sans relance automatique")
+    parser.add_argument("--mettre-a-jour", action="store_true", help="télécharger la dernière version puis quitter")
     args, extra = parser.parse_known_args(argv)
+
+    if args.mettre_a_jour:
+        return mettre_a_jour()
 
     if not verifier_environnement():
         return 1

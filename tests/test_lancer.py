@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -127,3 +128,44 @@ class ExecuterTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MiseAJourTests(unittest.TestCase):
+    @staticmethod
+    def archive(fichiers):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as z:
+            for nom, contenu in fichiers.items():
+                z.writestr("Test-branche/" + nom, contenu)
+        return buffer.getvalue()
+
+    def test_installe_le_code_et_preserve_les_donnees(self):
+        donnees = self.archive({
+            "lancer.py": "nouveau",
+            "discord_username_checker/cli.py": "cli",
+            "config.json": "PAS TOUCHE",
+            "resultats/disponibles.txt": "PAS TOUCHE",
+        })
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp)
+            (dest / "config.json").write_text("ma config", encoding="utf-8")
+            (dest / "resultats").mkdir()
+            (dest / "resultats" / "disponibles.txt").write_text("abcd\n", encoding="utf-8")
+            ecrits = lancer.installer_zip(donnees, dest)
+            self.assertEqual(ecrits, 2)
+            self.assertEqual((dest / "lancer.py").read_text(encoding="utf-8"), "nouveau")
+            self.assertEqual((dest / "discord_username_checker" / "cli.py").read_text(encoding="utf-8"), "cli")
+            self.assertEqual((dest / "config.json").read_text(encoding="utf-8"), "ma config")
+            self.assertEqual((dest / "resultats" / "disponibles.txt").read_text(encoding="utf-8"), "abcd\n")
+
+    def test_archive_vide_refusee(self):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w"):
+            pass
+        with self.assertRaises(ValueError):
+            lancer.installer_zip(buffer.getvalue(), Path("."))
+
+    def test_option_mettre_a_jour(self):
+        with mock.patch.object(lancer, "mettre_a_jour", return_value=0) as maj:
+            self.assertEqual(lancer.main(["--mettre-a-jour"]), 0)
+        maj.assert_called_once()
